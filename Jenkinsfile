@@ -183,18 +183,18 @@ pipeline {
               mkdir -p reports
               SKIP="node_modules,.venv,.scannerwork"
 
-              trivy fs --skip-dirs $SKIP --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
+              trivy fs --timeout 15m --skip-dirs $SKIP --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
                        --ignore-unfixed --format table -o reports/trivy-fs.txt .
               for IMG in ${BACKEND_IMAGE}:${VERSION} ${FRONTEND_IMAGE}:${VERSION}; do
                 NAME=$(basename ${IMG%%:*})
-                trivy image --severity HIGH,CRITICAL --ignore-unfixed --format table -o reports/trivy-${NAME}.txt ${IMG}
-                trivy image --format cyclonedx -o reports/sbom-${NAME}.cdx.json ${IMG}
+                trivy image --timeout 15m --severity HIGH,CRITICAL --ignore-unfixed --format table -o reports/trivy-${NAME}.txt ${IMG}
+                trivy image --timeout 15m --format cyclonedx -o reports/sbom-${NAME}.cdx.json ${IMG}
               done
               cat reports/trivy-fs.txt reports/trivy-derma-*.txt
 
-              trivy fs --skip-dirs $SKIP --scanners vuln,secret --severity CRITICAL --ignore-unfixed --exit-code 1 --quiet .
+              trivy fs --timeout 15m --skip-dirs $SKIP --scanners vuln,secret --severity CRITICAL --ignore-unfixed --exit-code 1 --quiet .
               for IMG in ${BACKEND_IMAGE}:${VERSION} ${FRONTEND_IMAGE}:${VERSION}; do
-                trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 --quiet ${IMG}
+                trivy image --timeout 15m --severity CRITICAL --ignore-unfixed --exit-code 1 --quiet ${IMG}
               done
             '''
           }
