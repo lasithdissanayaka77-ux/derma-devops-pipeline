@@ -1,20 +1,52 @@
-# syntax=docker/dockerfile:1
-# ---- Stage 1: build the React app ----
+# ================================
+# DermaAI Frontend Dockerfile
+# Vite + React + Nginx
+# ================================
+
+# ---------- Build stage ----------
 FROM node:22-alpine AS build
+
 WORKDIR /app
+
+# Install dependencies first for better Docker layer caching
 COPY package*.json ./
+
 RUN npm ci --no-audit --no-fund
+
+# Copy source code
 COPY . .
-# The browser calls the API through nginx at /api  (ADJUST: see GUIDE step 2 - how does your code read the API URL?)
+
+# API URL used by the Vite production build
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+
+# Build production frontend
 RUN npm run build
 
-# ---- Stage 2: serve the static files with nginx and proxy /api to the backend ----
+
+# ---------- Production stage ----------
 FROM nginx:stable-alpine
+
+# Copy Nginx configuration template
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Copy compiled Vite application
 COPY --from=build /app/dist /usr/share/nginx/html
-# The compose file overrides this with the environment-specific backend container name
+
+# Backend service name inside Docker Compose network
 ENV BACKEND_HOST=backend
+
+# HTTP port
 EXPOSE 80
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD wget -qO- http://localhost/ >/dev/null || exit 1
+
+# Container health check
+# Use 127.0.0.1 instead of localhost
+HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
+  CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1
+
+# OCI metadata
+ARG BUILD_VERSION=unknown
+ARG BUILD_REVISION=unknown
+
+LABEL org.opencontainers.image.version=$BUILD_VERSION
+LABEL org.opencontainers.image.revision=$BUILD_REVISION
