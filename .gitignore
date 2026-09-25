@@ -1,0 +1,23 @@
+backend/venv/
+**/__pycache__/
+**/.DS_Store
+.env
+.coverage
+htmlcov/
+.pytest_cache/
+*.db
+task-b9-plan.md
+backend/media/
+*.log
+test_image.jpg
+frontend/playwright-report/
+frontend/test-results/# ---- add these lines to your repo's .gitignore ----
+.env
+.env.*
+!.env.example
+reports/
+.scannerwork/
+.venv/
+.venv-*/
+frontend/coverage/
+infra/alertmanager/alertmanager.yml   # contains your Discord webhook / SMTP password

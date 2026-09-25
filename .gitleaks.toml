@@ -1,0 +1,6 @@
+# Confirmed false positives — reviewed and safe.
+[allowlist]
+  fingerprints = [
+    "ab5a7a05a4720364daa70a51ba4e6374d839c1d7:backend/AUTHENTICATION_GUIDE.md:curl-auth-header:547",
+    # value at this line is the literal placeholder "REDACTED_FOR_DOCS", not a real token
+  ]

@@ -1,0 +1,28 @@
+# Copy to alertmanager.yml and paste your webhook. alertmanager.yml is git-ignored because it contains a secret.
+# Discord: Server settings > Integrations > Webhooks > New Webhook > Copy Webhook URL
+# (Discord receiver needs Alertmanager v0.25+, which the :latest image is.)
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: team-discord
+  group_by: ['alertname', 'env']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 2h
+
+receivers:
+  - name: team-discord
+    discord_configs:
+      - webhook_url: 'PASTE-YOUR-DISCORD-WEBHOOK-URL-HERE'
+        send_resolved: true
+
+# Email instead (Gmail needs an "app password"):
+#  - name: team-email
+#    email_configs:
+#      - to: you@example.com
+#        from: you@gmail.com
+#        smarthost: smtp.gmail.com:587
+#        auth_username: you@gmail.com
+#        auth_password: 'your-gmail-app-password'
+#        send_resolved: true

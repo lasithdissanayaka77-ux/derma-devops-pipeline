@@ -1,0 +1,75 @@
+# One compose file, two environments.  The differences live in deploy/<env>.env and in Jenkins credentials.
+#   staging:  docker compose -p derma-staging -f deploy/docker-compose.app.yml --env-file deploy/staging.env up -d --wait
+#   prod:     docker compose -p derma-prod    -f deploy/docker-compose.app.yml --env-file deploy/prod.env    up -d --wait
+# Normally you never type these - scripts/deploy.sh does it (and rolls back on failure).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: derma-${ENV_NAME}-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dermaai
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set}
+      POSTGRES_DB: dermaai
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dermaai -d dermaai"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    image: ${REGISTRY:?REGISTRY is not set}/derma-backend:${IMAGE_TAG:?IMAGE_TAG is not set}
+    container_name: derma-${ENV_NAME}-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://dermaai:${DB_PASSWORD}@db:5432/dermaai
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?GOOGLE_API_KEY is not set}
+      SECRET_KEY: ${JWT_SECRET:?JWT_SECRET is not set}     # ADJUST: use the variable name your app really reads
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@derma.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    labels:
+      app.version: ${IMAGE_TAG}
+      app.env: ${ENV_NAME}
+    volumes:
+      - media:/app/media
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - default
+      - devops     # lets Jenkins (smoke tests) and Prometheus reach it by container name
+
+  frontend:
+    image: ${REGISTRY}/derma-frontend:${IMAGE_TAG}
+    container_name: derma-${ENV_NAME}-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      BACKEND_HOST: derma-${ENV_NAME}-backend    # unique per environment, so staging never talks to prod
+    ports:
+      - "${HTTP_PORT}:80"
+    labels:
+      app.version: ${IMAGE_TAG}
+      app.env: ${ENV_NAME}
+    networks:
+      - default
+      - devops
+
+volumes:
+  dbdata:
+  media:
+
+networks:
+  devops:
+    external: true     # created by infra/docker-compose.infra.yml (or: docker network create devops)

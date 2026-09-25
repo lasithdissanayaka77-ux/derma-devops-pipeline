@@ -1,0 +1,777 @@
+# DermaAI Project Tasks
+
+This document contains all development tasks for the DermaAI application, organized by backend and frontend components.
+
+---
+
+## 🟦 Backend Tasks
+
+### 🟦 B1 – Backend Skeleton (Dev 1)
+
+**Paste this into Codex:**
+
+I need you to initialize the backend for this new project.
+
+**Context:**
+- Root folders must be `/backend` and `/frontend`.
+- Tech Stack: FastAPI, Python 3.10+, PostgreSQL.
+
+**Action:** Create the following files and structure in the repository:
+
+1. `backend/.env`:
+   - Content: `DATABASE_URL=postgresql://skinscope:skinscope@localhost:5432/skinscope` and `GOOGLE_API_KEY=placeholder`.
+
+2. `backend/requirements.txt`:
+   - Add: fastapi, uvicorn, python-dotenv, sqlalchemy, alembic, psycopg2-binary, pydantic, python-multipart, httpx, google-generativeai
+
+3. `backend/app/__init__.py`: (Empty file).
+
+4. `backend/app/config.py`:
+   - Use `os.getenv` to load DATABASE_URL and GOOGLE_API_KEY.
+
+5. `backend/app/main.py`:
+   - Initialize `app = FastAPI()`.
+   - Add `CORSMiddleware` allowing origins=["http://localhost:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"].
+   - Add a root GET `/` endpoint returning `{"message": "DermaAI API is running"}`.
+
+6. `backend/README.md`:
+   - Add instructions on how to create a virtual environment and run `uvicorn app.main:app --reload`.
+
+---
+
+### 🟦 B2 – Database & Models (Dev 1)
+
+**Paste this into Codex:**
+
+I need to set up the Database schema and Alembic.
+
+**Context:**
+- We are using SQLAlchemy and PostgreSQL.
+- `backend/app/main.py` already exists.
+
+**Action:** Create/Update the following files:
+
+1. `backend/docker-compose.yml`:
+   - Service: `db` using image `postgres:15`.
+   - Ports: `5432:5432`.
+   - Environment: POSTGRES_USER=skinscope, POSTGRES_PASSWORD=skinscope, POSTGRES_DB=skinscope.
+
+2. `backend/app/db.py`:
+   - Setup `create_engine` using DATABASE_URL.
+   - Setup `SessionLocal` and `Base`.
+   - Create a `get_db` dependency.
+
+3. `backend/app/models.py`:
+   - Define these exact SQLAlchemy models:
+   - `User`: id (int, pk), email (unique), password (str), role (str), created_at.
+   - `DoctorProfile`: id (pk), user_id (FK->User.id), full_name, clinic_name, bio.
+   - `PatientDoctorLink`: id (pk), patient_id (FK->User.id), doctor_id (FK->User.id), status (default="active").
+   - `Image`: id (pk), patient_id (FK->User.id), doctor_id (FK->User.id), image_url, uploaded_at.
+   - `AnalysisReport`: id (pk), image_id (FK->Image.id), patient_id, doctor_id, report_json (Text), created_at.
+
+4. `backend/alembic/env.py` (Initialize Alembic first if needed):
+   - You must modify `env.py` to import `from app.models import Base` and set `target_metadata = Base.metadata` so autogenerate works.
+
+---
+
+### 🟦 B3 – Auth System (Dev 2)
+
+**Paste this into Codex:**
+
+I need to implement simple Authentication (No JWT).
+
+**Context:**
+- Use the existing `User` model.
+- We trust headers `X-User-Id` and `X-User-Role` for this sprint.
+
+**Action:** Create the following files:
+
+1. `backend/app/schemas.py`:
+   - Pydantic models: `UserSignup` (email, password, role), `UserLogin` (email, password), `UserResponse` (id, email, role).
+
+2. `backend/app/auth_helpers.py`:
+   - Func `get_current_user(request: Request, db: Session)`: Reads `X-User-Id` header. If missing or user not found, raise 401.
+   - Func `get_current_patient()`: Verifies role is "patient".
+   - Func `get_current_doctor()`: Verifies role is "doctor".
+
+3. `backend/app/routes/auth.py`:
+   - `POST /auth/signup`: Create User. If role="doctor", also create an empty DoctorProfile row.
+   - `POST /auth/login`: Check email/password (plain text). Return {user_id, email, role}.
+
+4. Update `backend/app/main.py`:
+   - Include the auth router.
+
+---
+
+### 🟦 B4 – Doctor Logic & Seeding (Dev 3)
+
+**Paste this into Codex:**
+
+I need to implement Doctor listings and a Seeding script.
+
+**Action:** Create/Update the following:
+
+1. `backend/app/seed_doctors.py`:
+   - Create a standalone script to insert 4 test doctors (Dr. Alice, Dr. Bob, etc.) if they don't exist.
+   - Must create both `User` and `DoctorProfile` entries for them.
+   - Use `if __name__ == "__main__":` so I can run it manually.
+
+2. `backend/app/routes/doctors.py`:
+   - `GET /doctors`: List all doctors (join User + DoctorProfile).
+
+3. `backend/app/routes/patient_doctor.py`:
+   - `POST /patient/select-doctor`: (Patient only) Body {doctor_id}. Upsert a `PatientDoctorLink` record.
+   - `GET /patient/my-doctor`: Return the currently linked doctor.
+
+4. Update `backend/app/main.py`:
+   - Include these routers.
+
+---
+
+### 🟦 B5 – Image Uploads (Dev 4)
+
+**Paste this into Codex:**
+
+I need to implement Image Uploading.
+
+**Context:**
+- Images should be stored locally in `backend/media`.
+
+**Action:** Create/Update the following:
+
+1. `backend/app/main.py`:
+   - Mount `StaticFiles` at `/media` pointing to the `backend/media` directory.
+
+2. `backend/app/routes/images.py`:
+   - `POST /images`:
+     - Dependency: `get_current_patient`.
+     - **Constraint:** Check if patient has a linked doctor in `PatientDoctorLink`. If not, raise HTTP 400.
+     - Save file to `backend/media/{uuid}.png`.
+     - Save to `Image` table (patient_id, doctor_id, image_url).
+     - Return `{image_id, image_url}`.
+
+3. Update `backend/app/main.py`:
+   - Include the images router.
+
+---
+
+### 🟦 B6 – Analysis Service (Dev 5)
+
+**Paste this into Codex:**
+
+I need to implement the AI Analysis endpoint.
+
+**Context:**
+- `GOOGLE_API_KEY` is in `.env`.
+
+**Action:** Create/Update the following:
+
+1. `backend/app/services/gemini_service.py`:
+   - Func `analyze_image(image_url)`.
+   - Call Google Gemini Vision model.
+   - **Crucial:** Strip any markdown formatting (like ```json) from the response string before parsing JSON to avoid errors.
+
+2. `backend/app/routes/analysis.py`:
+   - `POST /images/{id}/analyze`:
+     - Calculate analysis.
+     - Save to `AnalysisReport` table.
+     - Return JSON.
+   - `GET /patient/reports`: List reports for current patient.
+   - `GET /doctor/patients/{id}/reports`: List reports for specific patient (Doctor only).
+
+3. Update `backend/app/main.py`:
+   - Include the analysis router.
+
+---
+
+### 🟦 B7 – Auth Overhaul to JWT + Navigation Support
+
+**Goal:** Replace header-based auth with JWT sessions and support logout.
+
+**Action:**
+- Implement JWT issuing/verification in `backend/app/services` (new module) and expose via `routes/auth.py`. Issue tokens on login/signup; add refresh if needed.
+- Update `auth_helpers.py` dependencies to extract user from `Authorization: Bearer` instead of `X-User-*`. Keep role checks (`get_current_patient`, `get_current_doctor`).
+- Add logout/invalidate path (blacklist or short-lived tokens + client-side removal). Ensure CORS/config in `backend/main.py` supports the frontend origins.
+- Provide migration notes for the frontend to swap to Authorization headers.
+
+---
+
+### 🟦 B8 – Doctor Profile Integrity & Seeding
+
+**Goal:** Mandate realistic doctor data and seed meaningful dev fixtures.
+
+**Dependencies:** Extends **B4**. Prerequisite for **F8**.
+
+**Action:**
+- Update `models.DoctorProfile` to require full_name, clinic_name, bio, avatar_url (or similar). Add alembic migration accordingly.
+- Enhance `seed_doctors.py` to populate realistic names, avatars, bios; ensure idempotent inserts. Sync with any default assets the frontend expects.
+- Adjust doctor listing endpoints (`routes/doctors.py`, any patient doctor fetch endpoints) to include the new fields; ensure null-safe serialization.
+
+---
+
+### 🟦 B9 – Analysis Result Formatting & Chat Context
+
+**Goal:** Deliver structured summaries and chat-ready analysis context.
+
+**Dependencies:** Extends **B6**. Critical Prerequisite for **F7**.
+
+**Action:**
+- Refine the AI analysis service (`services/analysis.py` or equivalent) to output condition, confidence, recommendation fields (persisted in `AnalysisReport.report_json`). Keep raw model output if useful.
+- Add a chat endpoint (e.g., `POST /analysis/{image_id}/chat`) that takes user messages and replies using the stored analysis as system/context prompt (LLM provider already wired in `services/gemini_service.py`).
+- Ensure response schemas are defined in `schemas.py`; keep async patterns and error handling consistent with existing routers.
+
+---
+
+### 🟦 B10 – Doctor-Patient Workflow Glue
+
+**Goal:** Connect patient doctor selection, escalation, and unified chat.
+
+**Dependencies:** Requires **B4, B5, B6**. Critical Prerequisite for **F9**.
+
+**Action:**
+- Add/extend endpoints to attach a doctor to an image/case during upload (`routes/images.py` and related services). Persist doctor_id on Image/AnalysisReport.
+- Implement “Request Doctor Review” endpoint that marks a case for doctor attention; surface status fields in responses.
+- When a doctor joins a chat, pause AI replies: include a flag in chat responses once doctor participation is active. Provide a doctor chat endpoint that returns prior patient+AI messages for context.
+- Update permissions so doctors can only access linked patients; reuse existing `PatientDoctorLink` model for enforcement.
+
+---
+
+### 🟦 B11 – Security Hardening & Data Safety
+
+**Goal:** Tighten storage and transport security for images and reports.
+
+**Dependencies:** System-wide hardening. No blocking dependencies.
+
+**Action:**
+- Review image persistence: if long-term storage isn’t required, add lifecycle cleanup; otherwise, encrypt at rest or store in a protected bucket. Document the decision in `docs/TESTING.md` or a new security note.
+- Ensure uploaded media paths served via `StaticFiles` are access-controlled if sensitive (e.g., signed URLs or auth checks).
+- Add unit tests for new security behaviors in `backend/tests` (mock external services; follow pytest patterns already in place).
+
+## 🟩 Frontend Tasks
+
+### 🟩 F1 – Frontend Skeleton (Dev 1)
+
+**Paste this into Codex:**
+
+I need to initialize the Frontend.
+
+**Context:**
+- Root folder: `/frontend`.
+- Stack: React + Vite + Tailwind.
+
+**Action:** Create the following:
+
+1. Initialize a Vite React app in `/frontend`.
+
+2. Install dependencies: `react-router-dom`, `axios`, `clsx`, `tailwind-merge`.
+
+3. Configure Tailwind CSS (create tailwind.config.js).
+
+4. Create `frontend/src/pages/` with placeholder files (just an H1 in each):
+   - LoginPage.jsx
+   - PatientDashboard.jsx
+   - PatientUpload.jsx
+   - DoctorDashboard.jsx
+   - DoctorPatientDetail.jsx
+
+5. Setup `frontend/src/App.jsx` with Routes for all the pages above.
+
+---
+
+### 🟩 F2 – Auth Logic (Dev 2)
+
+**Paste this into Codex:**
+
+I need to implement Frontend Auth.
+
+**Context:**
+- Backend is at `http://localhost:8000`.
+- We use LocalStorage for auth (no JWT).
+
+**Action:** Create the following:
+
+1. `frontend/src/context/AuthContext.jsx`:
+   - Manage state `user` ({id, email, role}).
+   - `login(email, password)`: POST to backend. Save `id/role` to localStorage.
+   - **Crucial:** Setup an Axios interceptor to inject `X-User-Id` and `X-User-Role` headers into every request.
+
+2. `frontend/src/components/ProtectedRoute.jsx`:
+   - Check if user is logged in.
+   - Check if user.role matches `allowedRoles` prop.
+   - Redirect to `/login` if failed.
+
+3. Update `App.jsx` to wrap the dashboard routes in ProtectedRoute.
+
+---
+
+### 🟩 F3 – Patient Features (Dev 3)
+
+**Paste this into Codex:**
+
+I need to build the Patient Dashboard.
+
+**Action:** Update these files:
+
+1. `frontend/src/pages/PatientDashboard.jsx`:
+   - Fetch `GET /patient/my-doctor`.
+   - If null, fetch `GET /doctors` and show a selection list.
+   - If doctor exists, show buttons for "New Upload" and "View History".
+
+2. `frontend/src/pages/PatientUpload.jsx`:
+   - File input + "Analyze" button.
+   - On submit:
+     1. `POST /images` (upload file).
+     2. `POST /images/{id}/analyze` (trigger AI).
+     3. Display the JSON result on screen.
+
+---
+
+### 🟩 F4 – Doctor Features (Dev 4)
+
+**Paste this into Codex:**
+
+I need to build the Doctor Dashboard
+
+**Action:** Update these files:
+
+1. `frontend/src/pages/DoctorDashboard.jsx`:
+   - Fetch list of patients (you may need to use `GET /doctors` endpoint logic or a new endpoint if backend provided one, to find patients linked to me).
+   - Render a table of patients.
+
+2. `frontend/src/pages/DoctorPatientDetail.jsx`:
+   - Get `patientId` from URL.
+   - Fetch `GET /doctor/patients/{id}/reports`.
+   - Display each report:
+     - Image (use `http://localhost:8000` + image_url).
+     - AI Findings (Risk, Advice).
+
+---
+
+### 🟩 F5 – Styling & Layout (Dev 5)
+
+**Paste this into Codex:**
+
+I need to Apply Styling and Layout
+
+**Action:** Create/Update:
+
+1. `frontend/src/components/Layout.jsx`:
+   - A wrapper component with a Navbar ("DermaAI", Logout button).
+   - Apply this layout to all pages in `App.jsx`.
+
+2. `frontend/src/components/Disclaimer.jsx`:
+   - A Warning Banner: "AI is not a diagnosis."
+   - Add this to `PatientUpload` and `DoctorPatientDetail`.
+
+3. Styling:
+   - Use Tailwind to make the tables clean.
+   - Style buttons (blue-600) and inputs (gray-200).
+
+---
+
+### 🟩 F6 – Landing, Auth Navigation, and Logout
+
+**Goal:** Create a dedicated landing page (DermaAI branding) and clean auth navigation.
+
+**Dependencies:** Requires **B7 (Auth Overhaul)** [COMPLETED].
+
+**Action:**
+- Build a new public landing screen (e.g., `frontend/src/pages/LandingPage.jsx`) with hero copy for the fictional clinic "DermaAI" and primary buttons: **Get Started** and **Login**.
+- Route `/` should render the landing page; move the existing login UI to `/login`. Ensure router updates in `frontend/src/App.jsx` and keep layout via `components/Layout`.
+- Remove role selection from public views; rely on backend-provided role after login/signup (AuthContext already normalizes `role`).
+- Add a persistent logout control inside `components/Layout` nav that clears AuthContext and returns to `/`.
+- Add "Back to Dashboard" affordances on protected pages (PatientDashboard, PatientUpload, PatientHistory, DoctorDashboard, DoctorPatientDetail) using React Router navigation helpers.
+- Keep Axios auth headers injection in `context/AuthContext.jsx`; ensure logout clears headers/localStorage.
+
+---
+
+### 🟩 F7 – Results UI & AI Chat Surface
+
+**Goal:** Replace raw JSON results with a readable card and add a conversational helper.
+
+**Dependencies:** Requires **B9 (Analysis Formatting & Chat)**.
+
+**Action:**
+- In `pages/PatientUpload.jsx` (and any place results render), swap JSON dumps for a styled summary card showing Condition, Confidence, and Recommendation. Reuse existing CSS/Tailwind patterns from `App.css` and `components`.
+- Add a chat panel beneath the result summary. It should call a new backend chat endpoint (to be delivered) with the last analysis report as system context. Allow free-form patient questions like “What does this mean?”; show streaming or simple appended messages.
+- Keep the existing upload/analyze flow: `POST /images`, then `POST /images/{id}/analyze`; render the returned analysis and feed it into the chat context.
+- Make the chat UI tolerant of loading/error states; gate behind authentication and role `patient`.
+
+---
+
+### 🟩 F8 – Doctor Profile Display Robustness
+
+**Goal:** Handle missing doctor data gracefully on the patient-facing UI.
+
+**Dependencies:** Requires **B8 (Doctor Profile Integrity)**.
+
+**Action:**
+- Update doctor list rendering (PatientDashboard doctor selection and any doctor listings) to show placeholders for missing avatar, name, clinic, or bio rather than blank fields.
+- Add default avatar asset under `frontend/src/assets` if none exists; wire into doctor cards.
+- Ensure components handle null/undefined profile fields without crashing; prefer concise placeholders like “Clinic unavailable”.
+
+---
+
+### 🟩 F9 – Patient-to-Doctor Flow & Escalation UI
+
+**Goal:** Let patients pick a doctor, request review, and share chat history once a doctor joins.
+
+**Dependencies:** Requires **B10 (Workflow Glue)**.
+
+**Action:**
+- Extend PatientDashboard/PatientUpload to prompt doctor selection before or during case creation. Persist the chosen doctor ID when uploading an image.
+- After AI analysis, add a "Request Doctor Review" button that triggers the backend escalation endpoint and surfaces status (pending/accepted). Disable or mark once requested.
+- For chat: when a doctor joins, pause AI responses and display that the doctor is now responding. Show the combined patient+AI chat history to the doctor when they open DoctorPatientDetail.
+- Add UI indicators in doctor views for open review requests and allow the doctor to reply within the unified chat panel (reusing or extending existing chat component once available).
+
+---
+
+### 🟩 F10 – Anonymous/Public Flow
+
+**Goal:** Support a lightweight, no-login flow that still encourages signup.
+
+**Dependencies:** Independent (may require backend tweaks for unauthenticated access).
+
+**Action:**
+- Add an anonymous upload path reachable from the landing page (e.g., a CTA: “Try without signing up”).
+- Implement a limited upload+analysis experience without auth (temporary in-memory/session state). After result + chat preview, show a call-to-action: “Sign up to save this case” linking to `/login`.
+- Guard protected routes as-is; ensure anonymous flow does not pollute AuthContext or send auth headers.
+
+---
+
+### 🟩 F11 – E2E Coverage (Playwright)
+
+**Goal:** Capture the critical happy path from landing to analysis.
+
+**Dependencies:** Requires functioning flow (F6, F3, F7).
+
+**Action:**
+- Add Playwright tests under `frontend/src/__tests__/e2e/` covering: Landing → Login → Upload → Analysis display (and chat visibility if available).
+- Use the dev server at `http://localhost:5173`; seed or stub network calls as needed. Provide fixtures/mocks for backend endpoints if the real API isn’t running (consider MSW or Playwright route mocks).
+- Integrate into existing test runner setup in `frontend/src/__tests__` (Vitest + Playwright). Document commands in `docs/TESTING.md` if new.
+
+---
+
+## 🚀 Sprint 2 – Advanced Tasks (Plug & Play)
+
+### 🟩 S2-1 – UI Improvements
+**Prompt:**
+```xml
+<task id="ui-improvements" owner="Hani">
+  <mission>Polish UI per scope doc while respecting existing layout system.</mission>
+  <context>
+    <frontend>
+      <files>
+        <file>frontend/src/components/Layout.jsx (nav, shell, uiTokens)</file>
+        <file>frontend/src/App.css and frontend/src/index.css (global styles)</file>
+        <file>frontend/src/pages/LandingPage.jsx, Login pages, PatientDashboard/Upload/History, DoctorDashboard/Case views</file>
+      </files>
+    </frontend>
+  </context>
+  <instructions>
+    <step>Apply scope from Hani to enhance spacing, typography, and card states using existing Tailwind utility classes.</step>
+    <step>Keep Layout navigation structure intact; refine CTA hierarchy and add hover/active states to primary/secondary buttons via uiTokens.</step>
+    <step>Improve accessibility: add aria labels to upload inputs, ensure alert contrast, and keep focus rings visible.</step>
+    <step>Update relevant RTL tests or snapshots under frontend/src/__tests__ if DOM changes occur.</step>
+    <step>Avoid altering routing or business logic; focus strictly on presentation.</step>
+  </instructions>
+  <constraints>
+    <item>Respect responsive behavior already present.</item>
+    <item>Keep styles co-located with existing CSS/Tailwind patterns.</item>
+  </constraints>
+</task>
+```
+
+### 📝 S2-2 – Usage Guides for Patients and Doctors
+**Prompt:**
+```xml
+<task id="user-guides" owner="Docs">
+  <mission>Deliver clear guides describing how patients and doctors use the app.</mission>
+  <context>
+    <flows>
+      <patient>Select doctor (PatientDashboard) → upload &amp; analyze (PatientUpload) → view history/cases (PatientHistory, PatientCasePage).</patient>
+      <doctor>DoctorDashboard and DoctorCasePage for triage and chat.</doctor>
+      <anonymous>Anonymous try links through backend/app/routes/public_try.py and signup linking in backend/app/routes/auth.py via public_session_id.</anonymous>
+    </flows>
+  </context>
+  <instructions>
+    <step>Add docs/USER_GUIDE.md with sections: Patient Journey and Doctor Journey. Include step-by-step instructions, placeholders for screenshots, and referenced pages/endpoints.</step>
+    <step>Reference seeded doctor accounts and how patients pick doctors; include the AI disclaimer from README.</step>
+    <step>Align directions with current navigation paths (Landing → Login → Dashboard, etc.).</step>
+    <step>Link the new guide from README.md under Documentation.</step>
+  </instructions>
+  <constraints>
+    <item>Keep tone instructional, not marketing.</item>
+    <item>Make paths and buttons explicit so the guide is actionable without reading code.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-3 – Clinic Branding & Content
+**Prompt:**
+```xml
+<task id="clinic-branding" owner="Content">
+  <mission>Embed cohesive fictional clinic branding across app and seed data.</mission>
+  <context>
+    <backend>
+      <file>backend/app/seed_doctors.py (doctor seed data)</file>
+    </backend>
+    <frontend>
+      <file>frontend/src/pages/LandingPage.jsx (hero copy)</file>
+      <file>frontend/src/components/Layout.jsx (nav title)</file>
+    </frontend>
+    <branding>Current branding: DermaAI; replace with consistent fictional clinic name (e.g., "Aurora Skin Clinic") while preserving product name.</branding>
+  </context>
+  <instructions>
+    <step>Update seed_doctors.py to use the chosen clinic name, realistic bios, and avatar URLs; keep seeding idempotent.</step>
+    <step>Refresh LandingPage hero copy and nav title to reference the fictional clinic while keeping DermaAI product naming.</step>
+    <step>Add a clinic overview section to README.md or a new docs/CLINIC.md describing services and safety disclaimers.</step>
+    <step>Verify doctor listing responses include new fields so PatientDashboard renders updated info.</step>
+  </instructions>
+  <constraints>
+    <item>Do not break existing endpoints or selection flow.</item>
+    <item>Keep new assets lightweight and properly licensed.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-4 – Safe Doctor Switch
+**Prompt:**
+```xml
+<task id="safe-doctor-switch" owner="Backend+Frontend">
+  <mission>Let patients switch doctors without breaking existing cases.</mission>
+  <context>
+    <backend>
+      <files>
+        <file>backend/app/routes/patient_doctor.py (current selection endpoints)</file>
+        <file>backend/app/routes/cases.py and backend/app/services/chat_service.py (case workflow and websocket manager)</file>
+        <file>backend/app/models.py (AnalysisReport with doctor_id)</file>
+      </files>
+    </backend>
+    <frontend>
+      <file>frontend/src/pages/PatientDashboard.jsx (selection UI)</file>
+      <file>frontend/src/pages/PatientHistory.jsx and frontend/src/pages/PatientCasePage.jsx (history rendering)</file>
+    </frontend>
+  </context>
+  <instructions>
+    <step>Add backend constraints so changing doctor updates the active PatientDoctorLink while preserving historical reports tied to previous doctors.</step>
+    <step>Expose an endpoint like POST /patient/change-doctor that records a change log and prevents switching while an active case is pending/accepted.</step>
+    <step>Frontend: add a "Change doctor" CTA on PatientDashboard when linked, using a modal to list available doctors and call the new endpoint; show validation if an active case blocks switching.</step>
+    <step>Update cached doctor references when rendering patient history so past cases still show original doctor info.</step>
+    <step>Add tests: backend unit tests for switching with/without active cases; frontend RTL test for UI states.</step>
+  </instructions>
+  <constraints>
+    <item>Keep websocket/chat flows intact for active cases.</item>
+    <item>Guard against race conditions in concurrent switch requests.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-5 – Post-Consultation Doctor Rating
+**Prompt:**
+```xml
+<task id="doctor-rating" owner="Backend+Frontend">
+  <mission>Allow patients to rate doctors after cases are reviewed.</mission>
+  <context>
+    <backend>
+      <files>
+        <file>backend/app/models.py (AnalysisReport.review_status)</file>
+        <file>backend/app/routes/cases.py (complete_case)</file>
+      </files>
+    </backend>
+    <frontend>
+      <file>frontend/src/pages/PatientCasePage.jsx (chat and status rendering)</file>
+      <file>frontend/src/pages/DoctorDashboard.jsx (case list)</file>
+    </frontend>
+  </context>
+  <instructions>
+    <step>Extend AnalysisReport with optional patient_rating (1-5) and patient_feedback text; include migration.</step>
+    <step>Add endpoint POST /cases/{report_id}/rating secured to the owning patient; allow rating only when review_status == "reviewed" and prevent multiple submissions.</step>
+    <step>Frontend: when a case is reviewed and not yet rated, render a rating form (stars + textarea) on PatientCasePage; submit via apiClient and show confirmation.</step>
+    <step>Ensure ratings appear in doctor dashboards/Medical Admin views (if available) as a performance signal.</step>
+    <step>Add tests: backend pytest for permissions/validation; frontend RTL for form visibility and submission.</step>
+  </instructions>
+  <constraints>
+    <item>Preserve existing case completion flow.</item>
+    <item>Persist rating data atomically with validation.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-6 – Medical Admin Role & Seeded Account
+**Prompt:**
+```xml
+<task id="medical-admin" owner="Fullstack">
+  <mission>Introduce clinic-wide admin oversight with a seeded account.</mission>
+  <context>
+    <backend>
+      <files>
+        <file>backend/app/auth_helpers.py and backend/app/services/auth.py (roles and JWT issuance)</file>
+        <file>backend/app/routes/auth.py (login/signup)</file>
+        <file>backend/app/models.py and backend/app/schemas.py (user validation)</file>
+      </files>
+    </backend>
+    <frontend>
+      <file>frontend/src/context/AuthContext.jsx (role handling)</file>
+      <file>frontend/src/App.jsx (routing) and frontend/src/components/PrivateRoute.jsx (guards)</file>
+    </frontend>
+    <data>Doctor performance implied via AnalysisReport and PatientDoctorLink.</data>
+  </context>
+  <instructions>
+    <step>Add admin role to User validation and authorization helpers. Seed an admin user (env-driven credentials) in backend/app/seed_doctors.py or a new seeder.</step>
+    <step>Create admin API endpoints (e.g., /admin/overview) to surface metrics: total patients, total doctors, pending cases, average rating (if implemented), and recent case list via service-layer queries.</step>
+    <step>Frontend: add an AdminDashboard route/page showing these metrics with tables/cards, protected by role admin using existing PrivateRoute logic.</step>
+    <step>Tests: backend unit tests for role protection and metrics correctness; frontend RTL smoke test ensuring admin page renders for admin and rejects others.</step>
+    <step>Update README.md or docs/USER_GUIDE.md with admin credentials and capabilities.</step>
+  </instructions>
+  <constraints>
+    <item>Ensure seeded admin credentials are configurable and not hard-coded in code paths.</item>
+    <item>Do not regress existing patient/doctor roles.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-7 – Observability & Operational Readiness
+**Prompt:**
+```xml
+<task id="observability" owner="Ops+Fullstack">
+  <mission>Add structured logging, health signals, and a handoff runbook.</mission>
+  <context>
+    <backend>
+      <files>
+        <file>backend/app/main.py (middleware, route registration)</file>
+        <file>backend/app/config.py (env toggles)</file>
+        <file>backend/app/services/ai_service.py or equivalent Gemini wrapper</file>
+      </files>
+    </backend>
+    <frontend>
+      <file>frontend/src/main.jsx (global providers)</file>
+      <file>frontend/src/pages/PatientUpload.jsx and frontend/src/pages/DoctorDashboard.jsx (surface errors)</file>
+    </frontend>
+    <docs>
+      <file>docs/TESTING.md</file>
+      <file>README.md</file>
+    </docs>
+  </context>
+  <instructions>
+    <step>Add a request-id middleware (e.g., X-Request-ID) in FastAPI that propagates to structured JSON logs so backend logs can be correlated per request.</step>
+    <step>Centralize logging config (log level via env) and ensure AI/Gemini failures and media errors emit actionable log messages; avoid printing secrets.</step>
+    <step>Add a lightweight /health (and optional /ready) endpoint that checks DB connectivity and env configuration; document its usage for monitors.</step>
+    <step>Frontend: introduce a top-level error boundary/toast path that surfaces backend errors in PatientUpload and DoctorDashboard without breaking navigation.</step>
+    <step>Create docs/OPERATIONS.md with: how to start/stop services, rotate secrets, read logs, run migrations/seeds, and how to capture diagnostics when errors occur.</step>
+    <step>Update README.md and docs/TESTING.md to point to the new health checks/logging guidance.</step>
+  </instructions>
+  <constraints>
+    <item>Keep middleware async and lightweight; do not wrap imports in try/except.</item>
+    <item>Health endpoints must not leak secrets or heavy data; return minimal status JSON.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-8 – Data Lifecycle & Patient Deletion
+**Prompt:**
+```xml
+<task id="data-lifecycle" owner="Security+Backend">
+  <mission>Give patients control over their data and define retention.</mission>
+  <context>
+    <backend>
+      <files>
+        <file>backend/app/routes/auth.py (user creation)</file>
+        <file>backend/app/routes/cases.py and backend/app/routes/images.py (case/image lifecycle)</file>
+        <file>backend/app/models.py (User, Image, AnalysisReport, ChatMessage, PatientDoctorLink)</file>
+        <file>backend/app/config.py (new retention env vars)</file>
+      </files>
+      <media>Uploaded assets live under backend/app/media/ (mounted at /media).</media>
+    </backend>
+    <docs>
+      <file>docs/SECURITY.md</file>
+    </docs>
+  </context>
+  <instructions>
+    <step>Add a patient-authenticated endpoint (e.g., DELETE /patients/me) that queues deletion/anonymization: revoke tokens, mark PatientDoctorLink inactive, delete media files, and scrub AnalysisReport/ChatMessage PII while preserving aggregate stats.</step>
+    <step>Implement configurable retention for media/chat/analysis rows (env-driven days); a scheduled cleanup job can be placeholder but callable to enforce deletion.</step>
+    <step>Ensure doctor-facing history preserves case references as anonymized after deletion (no emails/names).</step>
+    <step>Back tests: pytest for deletion permissions, retention window enforcement, and file cleanup; mock filesystem access.</step>
+    <step>Document retention policy and deletion steps in docs/SECURITY.md and reference any env vars.</step>
+  </instructions>
+  <constraints>
+    <item>Do not break existing patient/doctor role checks.</item>
+    <item>File deletion must be safe/idempotent; guard against path traversal.</item>
+  </constraints>
+</task>
+```
+
+### 🟦 S2-9 – Resilience for AI + Upload Pipeline
+**Prompt:**
+```xml
+<task id="resilience" owner="Reliability">
+  <mission>Gracefully handle AI outages and invalid uploads end-to-end.</mission>
+  <context>
+    <backend>
+      <files>
+        <file>backend/app/services/ai_service.py or equivalent Gemini client</file>
+        <file>backend/app/routes/analysis.py (analysis endpoint)</file>
+        <file>backend/app/routes/images.py (upload validation)</file>
+      </files>
+    </backend>
+    <frontend>
+      <file>frontend/src/pages/PatientUpload.jsx (upload + analyze flow)</file>
+      <file>frontend/src/utils/apiClient.js</file>
+    </frontend>
+    <docs>
+      <file>docs/TESTING.md</file>
+    </docs>
+  </context>
+  <instructions>
+    <step>Add strict backend validation for file type/size on /images upload and surface clear 4xx errors (e.g., reject non-image or >N MB).</step>
+    <step>Implement AI fallback: if Gemini API key is missing or the request times out, return a safe degraded response that the UI can display ("analysis unavailable") without throwing.</step>
+    <step>Frontend: handle validation and degraded analysis states with user-friendly messaging and retry CTA; avoid crashing the page.</step>
+    <step>Add tests: backend unit tests for validation and fallback; frontend RTL for error banners and retry.</step>
+    <step>Document how to toggle fallback and validation limits in docs/TESTING.md.</step>
+  </instructions>
+  <constraints>
+    <item>Do not alter existing successful analysis response shape; add fallback flags instead.</item>
+    <item>Keep latency impact minimal; timeouts should be configurable.</item>
+  </constraints>
+</task>
+```
+
+## Task Completion Checklist
+
+### Backend
+- [x] B1 – Backend Skeleton
+- [x] B2 – Database & Models
+- [x] B3 – Auth System
+- [x] B4 – Doctor Logic & Seeding
+- [x] B5 – Image Uploads
+- [x] B6 – Analysis Service
+- [x] B7 – Auth Overhaul to JWT + Navigation Support
+- [x] B8 – Doctor Profile Integrity & Seeding
+- [x] B9 – Analysis Result Formatting & Chat Context
+- [x] B10 – Doctor-Patient Workflow Glue
+- [x] B11 – Security Hardening & Data Safety
+
+### Frontend
+- [x] F1 – Frontend Skeleton
+- [x] F2 – Auth Logic
+- [x] F3 – Patient Features
+- [x] F4 – Doctor Features
+- [x] F5 – Styling & Layout
+- [x] F6 – Landing, Auth Navigation, and Logout
+- [x] F7 – Results UI & AI Chat Surface
+- [x] F8 – Doctor Profile Display Robustness
+- [x] F9 – Patient-to-Doctor Flow & Escalation UI
+- [x] F10 – Anonymous/Public Flow
+- [x] F11 – E2E Coverage (Playwright)
+
+### Sprint 2 Advanced (Plug & Play)
+- [x] S2-1 – UI Improvements
+- [x] S2-2 – Usage Guides
+- [x] S2-3 – Clinic Branding
+- [x] S2-4 – Safe Doctor Switch
+- [x] S2-5 – Post-Consultation Doctor Rating
+- [x] S2-6 – Medical Admin Role
+- [x] S2-7 – Observability
+- [x] S2-8 – Data Lifecycle
+- [x] S2-9 – Resilience
+

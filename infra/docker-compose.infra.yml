@@ -1,0 +1,106 @@
+# The whole "DevOps lab" on your PC: Jenkins + SonarQube + Prometheus + Grafana + Alertmanager.
+# Start:  cd infra && cp alertmanager/alertmanager.yml.example alertmanager/alertmanager.yml   (edit the webhook)
+#         docker compose -f docker-compose.infra.yml up -d --build
+# RAM:    roughly 5-6 GB for this file + 1-2 GB per app environment.
+name: derma-infra
+
+services:
+  jenkins:
+    build: ./jenkins
+    container_name: jenkins
+    user: root                                   # LAB ONLY: lets Jenkins use the Docker socket (see GUIDE "security note")
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      JAVA_OPTS: "-Xmx1g"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - jenkins_cache:/root/.cache               # keeps Trivy DB + uv downloads between restarts
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [devops]
+
+  sonar-db:
+    image: postgres:16-alpine
+    container_name: sonar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_db:/var/lib/postgresql/data
+    networks: [devops]
+
+  sonarqube:
+    image: sonarqube:community                   # free Community Build (check the tag on Docker Hub if it is not found)
+    container_name: sonarqube
+    restart: unless-stopped
+    depends_on: [sonar-db]
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"  # avoids the vm.max_map_count error on Docker Desktop / WSL2
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_extensions:/opt/sonarqube/extensions
+      - sonar_logs:/opt/sonarqube/logs
+    networks: [devops]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus_data:/prometheus
+    networks: [devops]
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks: [devops]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}    # set GRAFANA_ADMIN_PASSWORD in your shell to change it
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [devops]
+
+volumes:
+  jenkins_home:
+  jenkins_cache:
+  sonar_db:
+  sonar_data:
+  sonar_extensions:
+  sonar_logs:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  devops:
+    name: devops        # fixed name so the app stacks (deploy/docker-compose.app.yml) can join it

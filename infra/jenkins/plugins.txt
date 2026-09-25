@@ -1,0 +1,13 @@
+workflow-aggregator
+git
+github
+credentials-binding
+plain-credentials
+junit
+timestamper
+ws-cleanup
+pipeline-stage-view
+pipeline-graph-view
+sonar
+prometheus
+build-timeout
