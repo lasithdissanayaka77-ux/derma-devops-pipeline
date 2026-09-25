@@ -19,12 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    op.add_column("analysis_reports", sa.Column("patient_rating", sa.Integer(), nullable=True))
-    op.add_column("analysis_reports", sa.Column("patient_feedback", sa.Text(), nullable=True))
+    """Schema already contains patient rating fields in the baseline migration."""
+    pass
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
-    op.drop_column("analysis_reports", "patient_feedback")
-    op.drop_column("analysis_reports", "patient_rating")
+    """No-op migration."""
+    pass
