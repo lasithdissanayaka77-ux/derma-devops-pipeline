@@ -1,7 +1,6 @@
 // =====================================================================================
 //  DermaAI - 7-stage Jenkins pipeline        SIT223/753  Task 7.3HD
 //  Build -> Test -> Code Quality -> Security -> Deploy -> Release -> Monitoring
-//  Search this file for "ADJUST" to find the few lines you must change for your setup.
 // =====================================================================================
 pipeline {
   agent any
@@ -138,9 +137,7 @@ pipeline {
         script {
           def scannerHome = tool 'sonar-scanner'
           withSonarQubeEnv('sonarqube-local') {
-            // DEBUG LINE: lists only the NAMES of sonar-related env vars, never the values.
-            sh 'env | grep -i sonar | cut -d= -f1'
-            sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectVersion=${env.VERSION} -Dsonar.token=$SONAR_TOKEN"
+            sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectVersion=${env.VERSION} -Dsonar.token=$SONAR_AUTH_TOKEN"
           }
         }
         timeout(time: 10, unit: 'MINUTES') {
