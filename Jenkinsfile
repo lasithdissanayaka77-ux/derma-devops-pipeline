@@ -22,9 +22,9 @@ pipeline {
 
   environment {
     // ---------- ADJUST these three ----------
-    REGISTRY      = 'docker.io/YOUR_DOCKERHUB_USER'          // or 'ghcr.io/YOUR_GITHUB_USER'
+    REGISTRY      = 'docker.io/lasith9214'          // or 'ghcr.io/YOUR_GITHUB_USER'
     REGISTRY_HOST = ''                                       // '' = Docker Hub, 'ghcr.io' = GitHub Container Registry
-    GITHUB_REPO   = 'YOUR_GITHUB_USER/derma-devops-pipeline' // used to push the release tag
+    GITHUB_REPO   = 'lasithdissanayaka77-ux/derma-devops-pipeline' // used to push the release tag
     // ----------------------------------------
     VERSION        = "1.0.${env.BUILD_NUMBER}"               // every build gets a unique, traceable version
     COVERAGE_MIN   = '50'                                    // backend coverage gate (%). Raise it as you add tests.

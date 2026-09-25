@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from app.observability import configure_logging, request_id_middleware
+
 from app.routes import (
     auth,
     doctors,
@@ -17,14 +21,17 @@ from app.routes import (
     admin,
 )  # Registered routers
 
+
 app = FastAPI(
     title="DermaAI API",
     description="AI-Powered Dermatologist Assistant",
     version="1.0.0"
 )
 
-configure_logging()
+# Prometheus metrics for monitoring
+Instrumentator().instrument(app).expose(app)
 
+configure_logging()
 
 
 origins = [
@@ -43,6 +50,7 @@ app.add_middleware(
 )
 
 app.middleware("http")(request_id_middleware)
+
 
 # Include WebSocket router FIRST (before static files)
 app.include_router(websocket.router)
@@ -63,7 +71,10 @@ app.include_router(media.router)
 app.include_router(patients.router)
 app.include_router(admin.router)
 
+
 @app.get("/")
 def read_root():
     return {"message": "DermaAI API is running"}
+
+
 # Trigger Reload
